@@ -29,6 +29,7 @@ var (
 	isUserFlag  bool // True if run as quadlet-user-generator executable
 	dryRunFlag  bool // True if -dryrun is used
 	versionFlag bool // True if -version is used
+	targetFlag  *string
 )
 
 var (
@@ -124,6 +125,13 @@ func isExtSupported(filename string) bool {
 	return ok
 }
 
+func isTarget(name string) bool {
+	if targetFlag == nil {
+		return false
+	}
+	return *targetFlag == name
+}
+
 func loadUnitsFromDir(sourcePath string, units map[string]*parser.UnitFile) {
 	files, err := os.ReadDir(sourcePath)
 	if err != nil {
@@ -135,6 +143,10 @@ func loadUnitsFromDir(sourcePath string, units map[string]*parser.UnitFile) {
 
 	for _, file := range files {
 		name := file.Name()
+		if targetFlag != nil && *targetFlag != name {
+			continue
+		}
+
 		if units[name] == nil && isExtSupported(name) {
 			path := path.Join(sourcePath, name)
 
@@ -142,6 +154,9 @@ func loadUnitsFromDir(sourcePath string, units map[string]*parser.UnitFile) {
 
 			if f, err := parser.ParseUnitFile(path); err != nil {
 				Logf("Error loading '%s', ignoring: %s", path, err)
+				if isTarget(name) {
+					os.Exit(1)
+				}
 			} else {
 				units[name] = f
 			}
@@ -305,6 +320,10 @@ func main() {
 		return
 	}
 
+	if targetFlag != nil {
+		dryRunFlag = true
+	}
+
 	if verboseFlag || dryRunFlag {
 		enableDebug()
 	}
@@ -369,6 +388,9 @@ func main() {
 
 		if err != nil {
 			Logf("Error converting '%s', ignoring: %s", name, err)
+			if isTarget(name) {
+				exitCode = 1
+			}
 		} else {
 			service.Path = path.Join(outputPath, service.Filename)
 
@@ -398,4 +420,11 @@ func init() {
 	flag.BoolVar(&isUserFlag, "user", false, "Run as systemd user")
 	flag.BoolVar(&dryRunFlag, "dryrun", false, "Run in dryrun mode printing debug information")
 	flag.BoolVar(&versionFlag, "version", false, "Print version information and exit")
+	flag.Func("target", "Specify a name for easier debugging (enables dryrun)", func(name string) error {
+		if !isExtSupported(name) {
+			return fmt.Errorf("unsupported file type '%s'", filepath.Ext(name))
+		}
+		targetFlag = &name
+		return nil
+	})
 }
